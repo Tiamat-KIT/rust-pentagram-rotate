@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "rgeraskin.mise",
+        "hverlin.mise-vscode",
+        "fractalbrew.vscode-mise",
+        "rust-lang.rust-analyzer"
+    ]
+}

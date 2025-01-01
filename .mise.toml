@@ -1,0 +1,9 @@
+[tools]
+rust = "latest"
+rust-analyzer = "latest"
+cargo = "latest"
+
+
+[tasks.dependencies-install]
+description = "Install dependencies"
+run = "rustup target add wasm32-unknown-unknown && cargo install --locked trunk && cargo install --locked wasm-bindgen-cli"
