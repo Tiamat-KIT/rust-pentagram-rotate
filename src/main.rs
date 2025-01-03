@@ -1,4 +1,6 @@
 mod ctx;
+mod vertex;
+mod time_uniform;
 
 use std::sync::Arc;
 

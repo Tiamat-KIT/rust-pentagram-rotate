@@ -1,5 +1,5 @@
 use std::{borrow::Cow, sync::Arc};
-use wgpu::{util::DeviceExt, BufferAddress, ShaderSource};
+use wgpu::{util::DeviceExt, ShaderSource};
 use winit::window::Window;
 use rand::Rng;
 
