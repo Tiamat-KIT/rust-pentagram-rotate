@@ -1,10 +1,10 @@
-// mod state;
-mod wgpu_ctx;
-mod vertex;
+mod ctx;
 
 use std::sync::Arc;
 
-use wgpu_ctx::WgpuCtx;
+use ctx::ctx_traits::WgpuCtxBase;
+use ctx::wgpu_ctx::WgpuCtx;
+use ctx::wgpu_star_ctx::{self, WgpuStarCtx};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -14,6 +14,7 @@ use winit::window::{Window, WindowId};
 pub struct App<'window> {
     window: Option<Arc<Window>>,
     wgpu_ctx: Option<WgpuCtx<'window>>,
+    wgpu_star_ctx: Option<WgpuStarCtx<'window>>,
 }
 
 
@@ -28,8 +29,8 @@ impl<'window> ApplicationHandler for App<'window> {
                     .expect("create window err."),
             );
             self.window = Some(window.clone());
-            let wgpu_ctx = WgpuCtx::new(window.clone());
-            self.wgpu_ctx = Some(wgpu_ctx);
+            self.wgpu_ctx = Some(WgpuCtx::new(window.clone()));
+            self.wgpu_star_ctx = Some(WgpuStarCtx::new(window.clone()));
         }
     }
 
@@ -41,17 +42,25 @@ impl<'window> ApplicationHandler for App<'window> {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
-                if let (Some(wgpu_ctx), Some(window)) =
+                /* if let (Some(wgpu_ctx), Some(window)) =
                     (self.wgpu_ctx.as_mut(), self.window.as_ref())
                 {
                     wgpu_ctx.resize((new_size.width, new_size.height));
                     window.request_redraw();
-                }
+                } */
+
+               if let (Some(wgpu_star_ctx),Some(window)) = (self.wgpu_star_ctx.as_mut(),self.window.as_ref()) {
+                   wgpu_star_ctx.resize((new_size.width, new_size.height));
+                   window.request_redraw();
+               }
             }
             WindowEvent::RedrawRequested => {
-                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
+                /* if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                     wgpu_ctx.draw();
-                }
+                } */
+               if let Some(wgpu_star_ctx) = self.wgpu_star_ctx.as_mut() {
+                   wgpu_star_ctx.draw();
+               }
             }
             _ => (),
         }
