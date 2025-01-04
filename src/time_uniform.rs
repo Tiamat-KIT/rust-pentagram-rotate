@@ -1,21 +1,30 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
+use bytemuck::{Pod, Zeroable};
+
+#[repr(C)]
+#[derive(Clone, Copy,Debug,Pod,Zeroable)]
 pub struct TimeUniform {
-    pub time: SystemTime
+    pub time: f32,
+    _padding: [u8;12]
 }
 
 impl TimeUniform {
     pub fn new() -> Self {
         Self {
-            time: SystemTime::now()
+            time: 0.0,
+            _padding: [0;12]
         }
     }
 
-    pub fn after_duration(self) -> u8 {
-        std::time::SystemTime::now()
-            .duration_since(self.time)
-            .expect("Duration Since Error")
-            .as_secs() as u8
+    pub fn after_duration(&self) -> Self {
+        Self {
+            time: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f32(),
+            _padding: [0; 12],
+        }
     }
 
     pub fn get_time_uniform_buffer_and_bindgroup(device: &wgpu::Device,pipeline: &wgpu::RenderPipeline) -> (wgpu::Buffer,wgpu::BindGroup) {

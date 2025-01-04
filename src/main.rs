@@ -77,5 +77,9 @@ fn main() {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App::default();
-    let _ = event_loop.run_app(&mut app).expect("Event Loop Error");
+    let _ = event_loop.run_app(&mut app)
+        .map_err(|err| {
+            eprintln!("Event Loop Error: {:?}",err)
+        });
+
 }

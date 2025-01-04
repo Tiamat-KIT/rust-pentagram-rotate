@@ -49,11 +49,42 @@ impl<'window> WgpuStarCtx<'window> {
             None
         ).await.unwrap();
 
+        device.on_uncaptured_error(Box::new(|err| {
+            eprintln!("Device: error: {:?}",err)
+        }));
+
         let size = window.inner_size();
         let (width,height) = (size.width.max(1),size.width.max(1));
-        let surface_config = surface.get_default_config(&adapter, width, height)
+        let surface_config = surface
+            .get_default_config(&adapter, width, height)
             .unwrap();
         surface.configure(&device, &surface_config);
+
+        let bind_group_layout = device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Time Uniform Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None
+                        },
+                        count: None
+                    }
+                ]
+            }
+        );
+
+        let pipeline_layout = device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
+                label: Some("Star Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[]
+            }
+        );
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Star Shader"),
@@ -63,7 +94,7 @@ impl<'window> WgpuStarCtx<'window> {
         let render_pipeline = device.create_render_pipeline(
             &wgpu::RenderPipelineDescriptor {
                 label: Some("Star Pipeline"),
-                layout: None,
+                layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vertexMain"),
@@ -74,7 +105,12 @@ impl<'window> WgpuStarCtx<'window> {
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
@@ -84,20 +120,9 @@ impl<'window> WgpuStarCtx<'window> {
                     module: &shader,
                     entry_point: Some("fragmentMain"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        write_mask: wgpu::ColorWrites::ALPHA,
+                        write_mask: wgpu::ColorWrites::ALL,
                         format: surface_config.format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::SrcAlpha,
-                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                            alpha: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::One,
-                                dst_factor: wgpu::BlendFactor::One,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                        }),
+                        blend: Some(wgpu::BlendState::REPLACE),
                     })],
                     compilation_options: Default::default(),
                 })
@@ -130,8 +155,74 @@ impl<'window> WgpuStarCtx<'window> {
         let mut vertices: Vec<PositionVertex> = PositionVertex::new_vecs(PositionVertex::STAR_VERTEX_SIZE * 2);
         let clone_vertices = vertices.clone();
         let vertices_bytes: &[u8]  = PositionVertex::vertices_byte(&clone_vertices);
+        let vertex_buffer = PositionVertex::get_buffer(&self.device, vertices_bytes);
 
-        let mut indices: Vec<u16> = Vec::new();
+        let uniform = TimeUniform::new();
+        let uniform_buffer = self.device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Time Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+            }
+        );
+
+        let bind_group_layout = self.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Time Uniform Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }
+                ],
+            }
+        );
+
+        let uniform_bind_group = self.device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                label: Some("Time Uniform Bind Group"),
+                layout: &bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: uniform_buffer.as_entire_binding(),
+                    }
+                ],
+            }
+        );
+
+        let surface_texture = self.surface
+            .get_current_texture()
+            .expect("Failed to acquire next surface texture");
+
+        let texture_view = surface_texture
+            .texture
+            .create_view(
+                &wgpu::TextureViewDescriptor::default()
+            );
+
+        let current_time = uniform.after_duration();
+
+        self.queue.write_buffer(
+            &uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[current_time])
+        );
+
+        let mut command_encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("Command Encoder")
+            }
+        );
+
+
+        /* let mut indices: Vec<u16> = Vec::new();
         for i in 0..PositionVertex::STAR_VERTEX_SIZE * 2 {
             indices.push(i as u16);
             indices.push((i + 5) as u16);
@@ -144,13 +235,8 @@ impl<'window> WgpuStarCtx<'window> {
         );
 
 
-        /* 頂点データをバッファとして用意 */
-        let vertex_buffer = PositionVertex::get_buffer(&self.device, vertices_bytes);
-        self.queue.write_buffer(
-            &vertex_buffer,
-            0,
-            vertices_bytes
-        );
+    
+        
 
         /* インデックスデータをバッファとして用意 */
         let index_buffer = self.device.create_buffer_init(
@@ -161,11 +247,6 @@ impl<'window> WgpuStarCtx<'window> {
             }
         );
 
-        self.queue.write_buffer(
-            &index_buffer,
-            0,
-            indices_bytes
-        );
         let (uniform_buffer,uniform_bind_group) = TimeUniform::get_time_uniform_buffer_and_bindgroup(
             &self.device,
             &self.render_pipeline
@@ -173,25 +254,12 @@ impl<'window> WgpuStarCtx<'window> {
 
         
 
-        let surface_texture = self.surface
-            .get_current_texture()
-            .expect("Fails Surface Texture Gets");
-
-        let texture_view = surface_texture
-            .texture
-            .create_view(
-                &wgpu::TextureViewDescriptor::default()
-            );
         
-        let mut command_encoder = self.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("Command Encoder")
-            }
-        );
+         */
+        
 
         
-        // 実行直前の時間を取得
-        let start_time  = TimeUniform::new();
+        
 
         {
             let mut rpass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -200,7 +268,7 @@ impl<'window> WgpuStarCtx<'window> {
                     view: &texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -209,64 +277,23 @@ impl<'window> WgpuStarCtx<'window> {
                 occlusion_query_set: None,
             });
 
-            /*
-             * 時間経過の概念を、Uniform Bufferを通して、
-             * 常に変化し続けるstd::timeのデータを渡す
-             * 
-             * ※WebAssemblyはwasm-timeで動かさないとエラーを出して成功しない
-             */
-            self.queue.write_buffer(
-                &uniform_buffer,
-                0,
-                &[start_time.after_duration()]
+            rpass.set_pipeline(
+                &self.render_pipeline
             );
+
+            rpass.set_bind_group(
+                0,
+                &uniform_bind_group,
+                &[]
+            );
+            rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
 
             let instances: Vec<StarInstance> = StarInstance::new_vec(Self::NUM_STARS);
             // インスタンスデータのバッファ化
             let instance_buffer = StarInstance::get_buffer(&self.device, &instances);
             
-            self.queue.write_buffer(
-                &instance_buffer,
-                0,
-                bytemuck::cast_slice(&instances)
-            );
-
-            /*
-             * 1. Pipeline設定
-             * 2. 0番目にuniformのBindGroupを設定
-             * 3. 頂点バッファを0番目,インスタンスバッファを1番目にセット
-             * 4. indexバッファをuint16の型として登録
-             * 5. indexバッファを使った描画を行う
-             * 6. 設定を終了 */
-
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(
-                0,
-                &uniform_bind_group,
-                &[0]
-            );
-
-
-            rpass.set_vertex_buffer(
-                0,
-                vertex_buffer.slice(..)
-            );
-
-            rpass.set_vertex_buffer(
-                1,
-                instance_buffer.slice(..)
-            );
-
-            rpass.set_index_buffer(
-                index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16
-            );
-
-            rpass.draw_indexed(
-                0..indices.len() as u32,
-                0,
-                0..instances.len() as u32
-            );
+            rpass.set_vertex_buffer(1, instance_buffer.slice(..));
+            rpass.draw(0..vertices.len() as u32,0..instances.len() as u32)
 
         }
         self.queue.submit(Some(command_encoder.finish()));
